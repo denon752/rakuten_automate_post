@@ -1,6 +1,6 @@
 # rakuten-room-auto-post
 
-楽天 ROOM に自動投稿する Node.js アプリケーションです。楽天 API を利用して商品情報を取得し、ChatGPT API で生成した商品の紹介文とともに、スクレイピングを用いて楽天 ROOM に自動投稿します。
+楽天 ROOM に自動投稿する Node.js アプリケーションです。楽天 API を利用して商品情報を取得し、Gemini API で生成した商品の紹介文とともに、スクレイピングを用いて楽天 ROOM に自動投稿します。
 
 ## 特徴
 
@@ -44,7 +44,6 @@ RAKUTEN_USER_PASSWORD=楽天ログインパスワード
 | `npm start keyword <キーワード>` | キーワード指定で投稿 |
 | `npm run like` | ランキングページ自動いいね |
 | `npm run follow <ROOM_ID>` | フォロワー自動フォロー |
-npm run follow room_b267661ebb
 ---
 
 ### 自動投稿
