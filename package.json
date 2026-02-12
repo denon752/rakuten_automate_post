@@ -5,11 +5,14 @@
   "main": "index.ts",
   "scripts": {
     "start": "ts-node index.ts",
+    "like": "ts-node src/likeRankingItems.ts",
+    "follow": "ts-node src/followUsers.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "axios": "^1.6.1",
     "cheerio": "^1.0.0-rc.12",
     "cron": "^3.1.6",
@@ -17,7 +20,7 @@
     "dotenv": "^16.3.1",
     "iconv-lite": "^0.6.3",
     "openai": "^4.17.4",
-    "puppeteer": "^21.5.2"
+    "puppeteer": "^24.37.2"
   },
   "devDependencies": {
     "ts-node": "^10.9.1",

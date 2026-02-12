@@ -5,7 +5,7 @@
 ## 特徴
 
 - 楽天 API から商品情報を取得
-- ChatGPT API を使用して商品紹介文を自動生成
+- Gemini API を使用して商品紹介文を自動生成
 - Puppeteer を用いたスクレイピングによる楽天 ROOM への自動投稿
 - cron を使用した定期実行機能
 
@@ -24,43 +24,62 @@ cd rakuten-room-auto-post
 npm install
 ```
 
-## 使用方法
+## 環境変数の設定
 
-1.`.env`ファイルを作成し、必要な API キーを設定します。
+`.env` ファイルを作成し、以下の値を設定してください。
 
 ```plaintext
 RAKUTEN_API_KEY=あなたの楽天APIキー
 CHATGPT_API_KEY=あなたのChatGPT APIキー
+RAKUTEN_USER_EMAIL=楽天ログインメールアドレス
+RAKUTEN_USER_PASSWORD=楽天ログインパスワード
 ```
 
-2.アプリケーションを実行します。
+## コマンド一覧
+
+| コマンド | 説明 |
+|---|---|
+| `npm start` | 自動投稿（デフォルト） |
+| `npm start genre <ID>` | ジャンル指定で投稿 |
+| `npm start keyword <キーワード>` | キーワード指定で投稿 |
+| `npm run like` | ランキングページ自動いいね |
+| `npm run follow <ROOM_ID>` | フォロワー自動フォロー |
+npm run follow room_b267661ebb
+---
+
+### 自動投稿
 
 ```bash
-npm start
+npm start                      # デフォルト実行
+npm start genre 100283         # ジャンルID指定
+npm start keyword クリスマス     # キーワード指定
 ```
 
-## 使用方法(optional)
+### ランキングページ 自動いいね
 
-### ジャンルを指定して実行する場合
+ランキングページのアイテムに対して自動で「いいね」を行います。
 
 ```bash
-npm start genre 100283
+npm run like
 ```
 
-### キーワードを指定して実行する場合
+- **対象**: `https://room.rakuten.co.jp/discover/collectItemRank`
+- **間隔**: 2分（+ランダム誤差）
+- **制限**: なし（ページ内のボタンがある限り実行）
+
+### フォロワー 自動フォロー
+
+指定したルームのフォロワー一覧から、未フォローユーザーを自動でフォローします。
 
 ```bash
-npm start keyword クリスマス
+npm run follow <ROOM_ID>
 ```
 
-## ライセンス
+**例:**
+```bash
+npm run follow niceman
+```
 
-このプロジェクトは MIT ライセンス の下で公開されています。
-
-## コントリビューション
-
-プルリクエストやフィードバックはいつでも歓迎します。新しい機能の提案やバグ報告は、GitHub の Issues に投稿してください。
-
-## 作者
-
-[tetsuya ohira](https://github.com/tetsuyaohira)
+- **対象**: `https://room.rakuten.co.jp/<ROOM_ID>/items` → フォロワー一覧
+- **間隔**: 1〜2分（ランダム）
+- **動作**: 「フォローする」ボタンをクリック。「フォロー中」はスキップ。

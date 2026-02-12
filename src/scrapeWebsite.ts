@@ -1,93 +1,146 @@
 import puppeteer from "puppeteer";
 import os from "os";
+import path from "path";
 import { generateProductDescription } from "./generateProductDescription";
 
 const scrapeWebsite = async (
   url: string,
   catchcopy: string,
-  itemName: string
+  itemName: string,
+  itemCaption: string // 4つ目の引数も受け取れるように調整
 ) => {
-  console.log("1:" + new Date().toLocaleString());
+  console.log("-----------------------------------------------");
+  console.log("処理開始:" + new Date().toLocaleString());
 
-  const userId = process.env.USER_ID || "";
-  const password = process.env.USER_PASSWORD || "";
+  // 環境変数の取得（念のためフォールバック設定）
+  const userId = process.env.RAKUTEN_USER_EMAIL || process.env.USER_ID || "";
+  const password = process.env.RAKUTEN_USER_PASSWORD || process.env.USER_PASSWORD || "";
 
-  const browser = await puppeteer.launch({ headless: "new" });
+  // --- ログイン情報を保存するディレクトリ ---
+  // プロジェクト直下の user_data フォルダに保存するように設定（管理しやすいため）
+  const userDataDir = path.join(process.cwd(), "user_data");
+
+  const browser = await puppeteer.launch({ 
+    headless: true, // 動作確認のため
+    userDataDir: userDataDir, // 💡 これがポイント：ログイン情報を保持
+    args: [
+      '--no-sandbox', 
+      '--disable-setuid-sandbox',
+      '--disable-blink-features=AutomationControlled', // 自動操作判定を回避
+      '--window-size=1280,800'
+    ]
+  });
+
   const page = await browser.newPage();
-  const userAgent = getUserAgent();
-  await page.setUserAgent(userAgent);
-  await page.goto(url);
+  // ユーザーエージェントを固定
+  await page.setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36");
 
-  // ログイン処理
-  await page.waitForSelector("#loginInner_u", { visible: true });
-  await page.type("#loginInner_u", userId);
-  await page.waitForSelector("#loginInner_p", { visible: true });
-  await page.type("#loginInner_p", password);
-  await page.click('input[value="ログイン"]');
-
-  // ログイン後のページ遷移を待つ
-  await page.waitForSelector("#collect-content", {
-    visible: true,
-  });
-
-  // コレ！済みの場合は、処理を終了
-  let modalElement = null;
   try {
-    await page.waitForSelector(".modal-dialog-container", {
-      visible: true,
-      timeout: 500,
+    console.log("ターゲットURLへアクセス中...");
+    await page.goto(url, { waitUntil: 'networkidle2' });
+
+    // --- 1. ログイン状態のチェックと処理 ---
+    const idSelector = 'input[aria-label*="ユーザID"], #login_id, #loginInner_u';
+    
+    try {
+      // 3秒間だけID入力欄を探す（存在しなければログイン済みとみなす）
+      await page.waitForSelector(idSelector, { visible: true, timeout: 3000 });
+      
+      console.log("🔑 ログインが必要です。入力を開始します...");
+      await page.type(idSelector, userId, { delay: 50 });
+
+      // 「次へ」または「ログイン」ボタン
+      const nextButtons = ['button[type="submit"]', 'input[type="submit"]', '.loginButton', '#login_next_btn'];
+      let clickedNext = false;
+      for (const selector of nextButtons) {
+        const btn = await page.$(selector);
+        if (btn) {
+          await Promise.all([
+            page.click(selector),
+            page.waitForNavigation({ waitUntil: 'networkidle2' }).catch(() => {}),
+          ]);
+          clickedNext = true;
+          break;
+        }
+      }
+      if (!clickedNext) await page.keyboard.press('Enter');
+
+      // パスワード入力（ページ遷移後に存在を確認）
+      const passSelector = 'input[type="password"], #loginInner_p';
+      await page.waitForSelector(passSelector, { visible: true, timeout: 5000 });
+      await page.type(passSelector, password, { delay: 50 });
+      
+      await Promise.all([
+        page.keyboard.press('Enter'),
+        page.waitForNavigation({ waitUntil: 'networkidle2' }).catch(() => {}),
+      ]);
+      console.log("✅ ログイン処理が完了しました。");
+
+    } catch (e) {
+      console.log("✨ すでにログイン済みか、保存されたセッションを使用します。");
+    }
+
+    // --- 2. 既に「コレ！」済みかチェック ---
+    try {
+      const alreadyCollected = await page.$(".modal-dialog-container");
+      if (alreadyCollected) {
+        console.log("👉 この商品はすでにコレ！済みです。");
+        await browser.close();
+        return false;
+      }
+    } catch (e) {}
+
+    // --- 3. AI紹介文生成（404エラー対策のガードレール） ---
+    console.log("AI紹介文を準備中...");
+    let descriptionText = "";
+    try {
+      const productDescription = await generateProductDescription(catchcopy, itemName, itemCaption);
+      descriptionText = productDescription?.slice(0, 500) || "";
+    } catch (apiError) {
+      // Gemini APIが404などのエラーを出した場合の固定文
+      console.error("❌ AI生成に失敗しました（404等）。固定文に切り替えます。");
+      descriptionText = `${itemName}\n\nおすすめのアイテムを見つけました！✨\n${catchcopy}\n\n#楽天ROOM #お買い物`;
+    }
+
+    // --- 4. 投稿処理 ---
+    const commentBox = "#collect-content";
+    await page.waitForSelector(commentBox, { visible: true, timeout: 10000 });
+    
+    // 既存テキストのクリア
+    await page.click(commentBox);
+    await page.focus(commentBox);
+    await page.evaluate((selector) => {
+      const el = document.querySelector(selector) as HTMLTextAreaElement;
+      if (el) el.value = '';
+    }, commentBox);
+    
+    // 入力
+    await page.type(commentBox, descriptionText, { delay: 10 });
+
+    // 完了ボタンをクリック
+    await page.waitForSelector("button", { visible: true });
+    const clicked = await page.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll('button'));
+      const target = btns.find(b => b.textContent?.includes('完了') || b.textContent?.includes('投稿'));
+      if (target) {
+        (target as HTMLElement).click();
+        return true;
+      }
+      return false;
     });
-    modalElement = await page.$(".modal-dialog-container");
-  } catch (error) {}
-  if (modalElement) {
-    console.log("「すでにコレしている商品です」のため処理を終了");
+
+    if (clicked) {
+      console.log("🚀 投稿完了ボタンをクリックしました！");
+      await new Promise(resolve => setTimeout(resolve, 4000));
+    }
+
+  } catch (error) {
+    console.error("❌ 実行中にエラーが発生しました:", error);
+  } finally {
     await browser.close();
-    return false;
   }
-
-  // メッセージ取得
-  const productDescription = await generateProductDescription(
-    catchcopy,
-    itemName
-  );
-  const productDescription500 = productDescription?.slice(0, 500) || "";
-  console.log("2:" + new Date().toLocaleString());
-  console.log(productDescription500);
-
-  //　投稿処理
-  await page.waitForSelector("#collect-content", {
-    visible: true,
-  });
-  await page.click("#collect-content");
-  await page.type("#collect-content", productDescription500, { delay: 10 });
-
-  await page.waitForSelector("button", { visible: true });
-  const buttonToClick = await page.$x("//button[contains(., '完了')]");
-
-  if (buttonToClick.length > 0) {
-    // @ts-ignore
-    await buttonToClick[0].click();
-    console.log("3:" + new Date().toLocaleString());
-    await page.waitForTimeout(500);
-  }
-
-  await browser.close();
 
   return true;
-};
-
-const getUserAgent = (): string => {
-  const platform = os.platform();
-  switch (platform) {
-    case "win32": // Windows
-      return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36";
-    case "darwin": // macOS
-      return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36";
-    case "linux": // Linux
-      return "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36";
-    default:
-      return "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36";
-  }
 };
 
 export default scrapeWebsite;

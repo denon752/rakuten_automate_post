@@ -1,64 +1,47 @@
-import OpenAI from "openai";
+import axios from "axios";
 
-const ROLE_CONTENT = `Please write short, attractive, friendly sentences to post on Rakuten ROOM so that people will want to buy your products.
-- Please do not use "[ and ]" because they are garbled.
-- Please use pictograms.
-- Please add a relevant hashtag at the end of the sentence.
-- Please keep it within 350 characters.
-- Answer in the language asked.`;
-// const ROLE_CONTENT = `楽天ROOMに投稿する文章を商品を購入したくなるように魅力的にフレンドリーに短く書いてください。
-// - 【と】は文字化けするので絶対に使わないでください。
-// - 絵文字を使ってください。
-// - 文章の最後に関連するハッシュタグをつけてください
-// - 350文字以内でお願いします。`;
-
-const ASSISTANT_CONTENT = `
-🦄✨ ユニコーンが誘う魔法のユートピアへようこそ ✨🦄
-
-🌸💖 ジルスチュアートの限定ホリデーコレクションで、幻想的な雲の上の世界へ一足先にトリップしましょう。ユニコーンユートピアコレクションは、ユートピアに咲く花々の香りとスウィートユートピアガーデンの香りが詰まった、夢見心地のセットです。💖🌸
-
-🌈 自分へのご褒美にも、大切な人への特別なギフトにもぴったり。煌びやかなアイシャドウ、ほんのり色づくチーク、唇を彩るルージュ、指先まで美しくするネイルオイル、そして雲形のキュートなポーチまで、このセット一つでメイクの幅が広がります。🌈
-
-🎁 LINEを新規追加で250円OFFクーポンプレゼント中！今すぐお友だちになって、お得に夢のようなホリデーコレクションを手に入れてくださいね。🎁
-
-#JILLSTUART #ユニコーンユートピア #ホリデーコレクション #限定セット #メイクアップ #ギフトセット #特別なプレゼント #スウィートユートピア #メイクの魔法 #LINEキャンペーン #ビューティー体験`;
-
-export async function generateProductDescription(
+export const generateProductDescription = async (
   catchcopy: string,
-  itemName: string
-) {
-  const openai = new OpenAI({ apiKey: process.env.CHATGPT_API_KEY });
+  itemName: string,
+  itemCaption: string = ""
+): Promise<string> => {
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  // 修正ポイント：モデル名の指定を "models/gemini-1.5-flash" に固定
+  const modelName = "models/gemini-flash-latest";
+  const url = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${apiKey}`;
+
+  const prompt = `
+楽天ROOMの投稿文を作ってください。
+【商品名】: ${itemName}
+【特徴】: ${catchcopy}
+ハッシュタグを2つ付けて、親しみやすい短文で。250文字以内で、回答だけだして余計な挨拶や返答は不要`;
 
   try {
-    const prompt = `以下の商品をあなたは購入しました。他の人が購入したくなるような魅力的でフレンドリーな文章を書いてください。
-  250字以内に収めてください。
-  
-  以下、商品の特徴
-  ${catchcopy}
-  ${itemName}
-  
-  `;
-
-    const completion = await openai.chat.completions.create({
-      messages: [
-        {
-          role: "system",
-          content: ROLE_CONTENT,
-        },
-        {
-          role: "assistant",
-          content: ASSISTANT_CONTENT,
-        },
-        { role: "user", content: prompt },
-      ],
-      model: "gpt-3.5-turbo",
-      // model: "gpt-4-1106-preview",
-      // response_format: { type: "json_object" },
+    const response = await axios.post(url, {
+      contents: [{
+        parts: [{ text: prompt }]
+      }]
     });
 
-    return completion?.choices[0]?.message?.content?.trim();
-  } catch (error) {
-    console.error("Error generating product description:", error);
-    return "";
+    // 成功した場合のテキスト抽出
+    return response.data.candidates[0].content.parts[0].text.trim();
+
+  } catch (error: any) {
+    // 404が出る場合、URLを v1 に変えてリトライする最終手段
+    if (error.response?.status === 404) {
+      console.log("🔄 v1beta で 404 のため、v1 エンドポイントを試行します...");
+      const v1Url = `https://generativelanguage.googleapis.com/v1/${modelName}:generateContent?key=${apiKey}`;
+      try {
+        const v1Response = await axios.post(v1Url, {
+          contents: [{ parts: [{ text: prompt }] }]
+        });
+        return v1Response.data.candidates[0].content.parts[0].text.trim();
+      } catch (v1Error) {
+        console.error("❌ v1 でも失敗しました。");
+      }
+    }
+
+    throw error;
   }
-}
+};
